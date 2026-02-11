@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>一份神秘礼物</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f2f5;
+            font-family: "Microsoft YaHei", "Heiti SC", sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        /* 输入框样式 */
+        #nameInput {
+            position: absolute;
+            font-size: 16px;
+            padding: 8px 12px;
+            border: 2px solid #0078d4;
+            border-radius: 4px;
+            outline: none;
+            font-family: "Microsoft YaHei", sans-serif;
+            transition: border-color 0.3s;
+        }
+        #nameInput:focus {
+            border-color: #005a9e;
+        }
+        #nameInput::placeholder {
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<input type="text" id="nameInput" placeholder="请输入您的姓名" style="display:none;">
+
+<audio id="bgm" src="Resource/music/bgm.mp3" loop></audio>
+<img id="heartImg" src="Resource/images/heart.png" style="display:none;">
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const bgm = document.getElementById('bgm');
+    const heartImgElement = document.getElementById('heartImg');
+    const nameInput = document.getElementById('nameInput');
+
+    // --- 屏幕适配与高清屏处理 ---
+    let screenW, screenH;
+    function resizeCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        screenW = window.innerWidth;
+        screenH = window.innerHeight;
+        
+        canvas.width = screenW * dpr;
+        canvas.height = screenH * dpr;
+        canvas.style.width = screenW + 'px';
+        canvas.style.height = screenH + 'px';
+        
+        ctx.scale(dpr, dpr);
+        
+        // 重新定位输入框
+        positionInput();
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // 状态机
+    const STATE = { START: 0, HOME: 1 };
+    let currentState = STATE.START;
+
+    // 用户信息
+    let userName = "";
+    let userPhoto = null; // 存储加载的用户照片
+    let photoLoadError = false; // 照片加载失败标记
+
+    // 扩展的祝福语库 - 以祝福、鼓励、感恩为主
+    const contents = [
+        // 祝福类
+        "愿所有烦恼都消失", "珍惜每一刻", "好好爱自己", "梦想成真",
+        "幸福美满", "前程似锦", "万事胜意", "永远自由", "平安喜乐", 
+        "好运爆棚", "未来可期", "心想事成", "一帆风顺", "笑口常开",
+        "福星高照", "吉祥如意", "岁岁平安", "四季安康", "诸事顺遂",
+        "花开富贵", "喜事连连", "步步高升", "大吉大利", "财源广进",
+        "身体健康", "长命百岁", "美梦成真", "事事如意", "锦绣前程",
+        
+        // 鼓励类
+        "今天过得开心嘛", "多喝水哦~", "顺顺利利", "天冷了，多穿衣服",
+        "记得吃水果", "你真的很棒", "相信自己", "加油，你可以的",
+        "每天都要开心哦", "做最好的自己", "慢慢来，不着急",
+        "你值得所有美好", "别太累了，休息一下", "今天也要元气满满",
+        "保持微笑，一切都会好的", "勇敢去追求梦想", "你已经做得很好了",
+        "困难只是暂时的", "明天会更好", "坚持下去就是胜利",
+        "相信奇迹会发生", "你是独一无二的", "永远不要放弃希望",
+        "每一天都是新的开始", "你比想象中更强大", "尽力就好，别给自己太大压力",
+        
+        // 温暖关怀类
+        "记得按时吃饭", "早点休息，晚安", "注意保暖哦",
+        "别忘了给家人打电话", "累了就休息一下", "心情不好可以找我聊",
+        "你不是一个人", "有人一直在关心你", "慢慢走，不要跑",
+        "深呼吸，放轻松", "给自己一个拥抱", "今天辛苦了",
+        "照顾好自己", "记得喝杯热水", "别熬夜啦",
+        
+        // 感恩类
+        "感谢有你陪伴", "谢谢你的善良", "感恩相遇",
+        "因为有你，世界更美好", "感谢每一个温暖的瞬间",
+        "感恩生命中的每一份礼物", "谢谢你一直都在",
+        "感恩当下，珍惜拥有", "感谢你带来的快乐",
+        "有你真好", "感恩遇见最好的你",
+        
+        // 励志类
+        "越努力越幸运", "保持热爱，奔赴山海",
+        "心中有光，眼里有爱", "做自己的太阳",
+        "星光不问赶路人", "时光不负有心人",
+        "愿你历尽千帆，归来仍是少年", "乾坤未定，你我皆是黑马",
+        "愿你所愿，终能实现", "路虽远，行则将至",
+        "日子慢慢过，会越来越好", "温柔且坚定",
+        "热爱生活，不负光阴", "今日事今日毕"
+    ];
+
+    // 图标类型枚举
+    const ICON_TYPES = {
+        HEART: 0,      // 爱心
+        STAR: 1,       // 星星
+        SMILE: 2,      // 笑脸
+        FLOWER: 3,     // 花朵
+        SUN: 4,        // 太阳
+        MOON: 5,       // 月亮
+        CLOVER: 6,     // 四叶草
+        GIFT: 7        // 礼物盒
+    };
+
+    // 配色方案
+    const colors = [
+        "rgb(249,251,231)", // 浅黄
+        "rgb(240,235,248)", // 浅紫
+        "rgb(231,247,244)", // 浅青
+        "rgb(252,228,236)", // 浅粉
+        "rgb(255,245,235)"  // 浅橙
+    ];
+
+    // 为每个图标类型配置对应的颜色
+    const iconColors = {
+        [ICON_TYPES.HEART]: "#ff4757",
+        [ICON_TYPES.STAR]: "#ffd93d",
+        [ICON_TYPES.SMILE]: "#ffa502",
+        [ICON_TYPES.FLOWER]: "#ff6b9d",
+        [ICON_TYPES.SUN]: "#ffcc00",
+        [ICON_TYPES.MOON]: "#a29bfe",
+        [ICON_TYPES.CLOVER]: "#26de81",
+        [ICON_TYPES.GIFT]: "#ff6348"
+    };
+
+    // 已使用的祝福语记录（避免短期内重复）
+    const usedContents = new Set();
+    const RESET_THRESHOLD = Math.floor(contents.length * 0.8);
+
+    function getRandomContent() {
+        if (usedContents.size >= RESET_THRESHOLD) {
+            usedContents.clear();
+        }
+        
+        const availableContents = contents.filter(c => !usedContents.has(c));
+        const pool = availableContents.length > 0 ? availableContents : contents;
+        const selected = pool[Math.floor(Math.random() * pool.length)];
+        
+        usedContents.add(selected);
+        return selected;
+    }
+
+    // 定位输入框
+    function positionInput() {
+        const w = Math.min(520, screenW - 40);
+        const h = 180; // 增加高度以容纳输入框
+        const x = (screenW - w) / 2;
+        const y = (screenH - h) / 2;
+        
+        const inputWidth = 240;
+        nameInput.style.left = (x + (w - inputWidth) / 2) + 'px';
+        nameInput.style.top = (y + 85) + 'px';
+        nameInput.style.width = inputWidth + 'px';
+    }
+
+    // 加载用户照片
+    function loadUserPhoto(name) {
+        // 支持多种图片格式
+        const formats = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+        let formatIndex = 0;
+        
+        function tryLoadPhoto() {
+            if (formatIndex >= formats.length) {
+                console.log(`未找到 ${name} 的照片`);
+                photoLoadError = true;
+                return;
+            }
+            
+            const img = new Image();
+            const format = formats[formatIndex];
+            img.src = `Resource/images/${name}.${format}`;
+            
+            img.onload = function() {
+                userPhoto = img;
+                photoLoadError = false;
+                console.log(`成功加载照片: ${name}.${format}`);
+            };
+            
+            img.onerror = function() {
+                formatIndex++;
+                tryLoadPhoto();
+            };
+        }
+        
+        tryLoadPhoto();
+    }
+
+    class Popup {
+        constructor() {
+            this.active = false;
+            this.scale = 0;
+            this.targetScale = 1;
+            this.reset();
+        }
+
+        reset() {
+            this.title = "提示";
+            this.content = getRandomContent();
+            this.baseColor = colors[Math.floor(Math.random() * colors.length)];
+            this.iconType = Math.floor(Math.random() * Object.keys(ICON_TYPES).length);
+            this.width = 240;
+            this.height = 64;
+            
+            // 计算中心区域（为照片预留空间）
+            const centerX = screenW / 2;
+            const centerY = screenH / 2;
+            const photoZoneSize = Math.min(screenW, screenH) * 0.35; // 中心预留区域
+            
+            // 随机位置，但避开中心区域
+            let x, y;
+            do {
+                x = Math.random() * (screenW - this.width);
+                y = Math.random() * (screenH - this.height);
+            } while (
+                x + this.width > centerX - photoZoneSize / 2 &&
+                x < centerX + photoZoneSize / 2 &&
+                y + this.height > centerY - photoZoneSize / 2 &&
+                y < centerY + photoZoneSize / 2
+            );
+            
+            this.x = x;
+            this.y = y;
+            this.scale = 0;
+        }
+
+        draw() {
+            if (!this.active) return;
+
+            if (this.scale < this.targetScale) {
+                this.scale += 0.1;
+                if (this.scale > this.targetScale) this.scale = this.targetScale;
+            }
+
+            ctx.save();
+            
+            const cx = this.x + this.width / 2;
+            const cy = this.y + this.height / 2;
+            ctx.translate(cx, cy);
+            ctx.scale(this.scale, this.scale);
+            ctx.translate(-cx, -cy);
+
+            ctx.shadowColor = "rgba(0, 0, 0, 0.15)";
+            ctx.shadowBlur = 15;
+            ctx.shadowOffsetY = 8;
+            ctx.shadowOffsetX = 0;
+
+            ctx.fillStyle = this.baseColor;
+            ctx.beginPath();
+            ctx.roundRect(this.x, this.y, this.width, this.height, 6);
+            ctx.fill();
+
+            ctx.shadowColor = "transparent";
+
+            ctx.fillStyle = "rgba(0,0,0,0.05)";
+            ctx.beginPath();
+            ctx.roundRect(this.x, this.y, this.width, 26, [6, 6, 0, 0]);
+            ctx.fill();
+
+            ctx.fillStyle = "#333";
+            ctx.font = "bold 13px Microsoft YaHei";
+            ctx.textBaseline = "top";
+            ctx.fillText(this.title, this.x + 38, this.y + 6);
+
+            ctx.fillStyle = "#000";
+            ctx.font = "bold 16px Microsoft YaHei";
+            ctx.textBaseline = "middle";
+            const textWidth = ctx.measureText(this.content).width;
+            ctx.fillText(this.content, this.x + (this.width - textWidth) / 2, this.y + 44);
+
+            const iconX = this.x + 8;
+            const iconY = this.y + 4;
+            const iconSize = 18;
+            const iconColor = iconColors[this.iconType];
+
+            switch(this.iconType) {
+                case ICON_TYPES.HEART:
+                    drawHeartShape(ctx, iconX + iconSize/2, iconY, iconSize, iconColor);
+                    break;
+                case ICON_TYPES.STAR:
+                    drawStarShape(ctx, iconX + iconSize/2, iconY + iconSize/2, iconSize/2, iconColor);
+                    break;
+                case ICON_TYPES.SMILE:
+                    drawSmileShape(ctx, iconX + iconSize/2, iconY + iconSize/2, iconSize/2, iconColor);
+                    break;
+                case ICON_TYPES.FLOWER:
+                    drawFlowerShape(ctx, iconX + iconSize/2, iconY + iconSize/2, iconSize/2, iconColor);
+                    break;
+                case ICON_TYPES.SUN:
+                    drawSunShape(ctx, iconX + iconSize/2, iconY + iconSize/2, iconSize/2, iconColor);
+                    break;
+                case ICON_TYPES.MOON:
+                    drawMoonShape(ctx, iconX + iconSize/2, iconY + iconSize/2, iconSize/2, iconColor);
+                    break;
+                case ICON_TYPES.CLOVER:
+                    drawCloverShape(ctx, iconX + iconSize/2, iconY + iconSize/2, iconSize/2, iconColor);
+                    break;
+                case ICON_TYPES.GIFT:
+                    drawGiftShape(ctx, iconX + iconSize/2, iconY + iconSize/2, iconSize/2, iconColor);
+                    break;
+            }
+
+            ctx.restore();
+        }
+    }
+
+    const MAX_POPUP = 300;
+    const popups = [];
+    for (let i = 0; i < MAX_POPUP; i++) {
+        popups.push(new Popup());
+    }
+
+    let frameCount = 0;
+
+    // ========== 图标绘制函数 ==========
+    
+    function drawHeartShape(ctx, x, y, size, color) {
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        const topCurveHeight = size * 0.3;
+        ctx.moveTo(x, y + topCurveHeight);
+        ctx.bezierCurveTo(x, y, x - size/2, y, x - size/2, y + topCurveHeight);
+        ctx.bezierCurveTo(x - size/2, y + (size+topCurveHeight)/2, x, y + (size+topCurveHeight)/2, x, y + size);
+        ctx.bezierCurveTo(x, y + (size+topCurveHeight)/2, x + size/2, y + (size+topCurveHeight)/2, x + size/2, y + topCurveHeight);
+        ctx.bezierCurveTo(x + size/2, y, x, y, x, y + topCurveHeight);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function drawStarShape(ctx, x, y, radius, color) {
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+            const angle = (i * 4 * Math.PI) / 5 - Math.PI / 2;
+            const x1 = x + radius * Math.cos(angle);
+            const y1 = y + radius * Math.sin(angle);
+            if (i === 0) ctx.moveTo(x1, y1);
+            else ctx.lineTo(x1, y1);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function drawSmileShape(ctx, x, y, radius, color) {
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        ctx.arc(x - radius/3, y - radius/4, radius/6, 0, Math.PI * 2);
+        ctx.arc(x + radius/3, y - radius/4, radius/6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, radius/2, 0, Math.PI, false);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function drawFlowerShape(ctx, x, y, radius, color) {
+        ctx.save();
+        ctx.fillStyle = color;
+        for (let i = 0; i < 5; i++) {
+            const angle = (i * Math.PI * 2) / 5;
+            const petalX = x + radius * 0.6 * Math.cos(angle);
+            const petalY = y + radius * 0.6 * Math.sin(angle);
+            ctx.beginPath();
+            ctx.arc(petalX, petalY, radius * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.fillStyle = "#ffd93d";
+        ctx.beginPath();
+        ctx.arc(x, y, radius * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function drawSunShape(ctx, x, y, radius, color) {
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, radius * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 8; i++) {
+            const angle = (i * Math.PI * 2) / 8;
+            ctx.beginPath();
+            ctx.moveTo(x + radius * 0.7 * Math.cos(angle), y + radius * 0.7 * Math.sin(angle));
+            ctx.lineTo(x + radius * Math.cos(angle), y + radius * Math.sin(angle));
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    function drawMoonShape(ctx, x, y, radius, color) {
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = "#f0f2f5";
+        ctx.beginPath();
+        ctx.arc(x + radius/3, y, radius * 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function drawCloverShape(ctx, x, y, radius, color) {
+        ctx.save();
+        ctx.fillStyle = color;
+        for (let i = 0; i < 4; i++) {
+            const angle = (i * Math.PI * 2) / 4;
+            const leafX = x + radius * 0.5 * Math.cos(angle);
+            const leafY = y + radius * 0.5 * Math.sin(angle);
+            ctx.beginPath();
+            ctx.arc(leafX, leafY, radius * 0.45, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, y + radius * 1.2);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function drawGiftShape(ctx, x, y, radius, color) {
+        ctx.save();
+        const boxSize = radius * 1.4;
+        ctx.fillStyle = color;
+        ctx.fillRect(x - boxSize/2, y - boxSize/4, boxSize, boxSize);
+        
+        ctx.fillStyle = "#ff4757";
+        ctx.fillRect(x - boxSize/2, y - boxSize/2, boxSize, boxSize/4);
+        
+        ctx.fillStyle = "#ffd93d";
+        ctx.fillRect(x - boxSize/8, y - boxSize/2, boxSize/4, boxSize);
+        ctx.fillRect(x - boxSize/2, y - boxSize/8, boxSize, boxSize/4);
+        ctx.restore();
+    }
+
+    // 绘制中心照片
+    function drawCenterPhoto() {
+        if (!userPhoto || photoLoadError) return;
+        
+        const centerX = screenW / 2;
+        const centerY = screenH / 2;
+        const maxSize = Math.min(screenW, screenH) * 0.3; // 照片最大尺寸
+        
+        // 计算照片显示尺寸（保持宽高比）
+        let drawWidth, drawHeight;
+        const aspectRatio = userPhoto.width / userPhoto.height;
+        
+        if (aspectRatio > 1) {
+            // 横向照片
+            drawWidth = maxSize;
+            drawHeight = maxSize / aspectRatio;
+        } else {
+            // 纵向照片
+            drawHeight = maxSize;
+            drawWidth = maxSize * aspectRatio;
+        }
+        
+        const x = centerX - drawWidth / 2;
+        const y = centerY - drawHeight / 2;
+        
+        ctx.save();
+        
+        // 绘制照片阴影
+        ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
+        ctx.shadowBlur = 20;
+        ctx.shadowOffsetY = 10;
+        
+        // 绘制白色边框
+        const borderSize = 10;
+        ctx.fillStyle = "white";
+        ctx.fillRect(x - borderSize, y - borderSize, drawWidth + borderSize * 2, drawHeight + borderSize * 2);
+        
+        ctx.shadowColor = "transparent";
+        
+        // 绘制照片
+        ctx.drawImage(userPhoto, x, y, drawWidth, drawHeight);
+        
+        // 绘制用户名（在照片下方）
+        if (userName) {
+            ctx.fillStyle = "#333";
+            ctx.font = "bold 24px Microsoft YaHei";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            ctx.fillText(userName, centerX, y + drawHeight + borderSize + 15);
+        }
+        
+        ctx.restore();
+    }
+
+    // 处理输入确认
+    function handleNameSubmit() {
+        const name = nameInput.value.trim();
+        if (name === "") {
+            alert("请输入您的姓名");
+            return;
+        }
+        
+        userName = name;
+        nameInput.style.display = 'none';
+        
+        // 加载用户照片
+        loadUserPhoto(name);
+        
+        // 切换到主界面
+        currentState = STATE.HOME;
+        bgm.play().catch(e => console.log("需交互播放"));
+    }
+
+    // 输入框事件监听
+    nameInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            handleNameSubmit();
+        }
+    });
+
+    function handleInput(x, y) {
+        if (currentState === STATE.START) {
+            const cx = screenW / 2;
+            const cy = screenH / 2;
+            const w = Math.min(520, screenW - 40);
+            const h = 180;
+            const btnW = 80;
+            const btnX = (screenW - w) / 2 + w - btnW - 20;
+            const btnY = (screenH - h) / 2 + h - 50;
+            
+            // 检查是否点击了确定按钮
+            if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + 30) {
+                handleNameSubmit();
+            }
+        }
+    }
+
+    canvas.addEventListener('mousedown', e => handleInput(e.clientX, e.clientY));
+    canvas.addEventListener('touchstart', e => {
+        e.preventDefault();
+        handleInput(e.touches[0].clientX, e.touches[0].clientY);
+    }, {passive: false});
+
+    // 主循环
+    function loop() {
+        ctx.fillStyle = (currentState === STATE.START) ? "#8d9094" : "#ecf0f6";
+        ctx.fillRect(0, 0, screenW, screenH);
+
+        if (currentState === STATE.START) {
+            // 绘制开始界面
+            const w = Math.min(520, screenW - 40);
+            const h = 180; // 增加高度
+            const x = (screenW - w) / 2;
+            const y = (screenH - h) / 2;
+
+            ctx.shadowColor = "rgba(0,0,0,0.3)";
+            ctx.shadowBlur = 30;
+            ctx.shadowOffsetY = 10;
+            
+            ctx.fillStyle = "white";
+            ctx.fillRect(x, y, w, h);
+            
+            ctx.shadowColor = "transparent";
+
+            ctx.fillStyle = "#f3f3f3";
+            ctx.fillRect(x, y, w, 53);
+            ctx.fillStyle = "#ddd";
+            ctx.fillRect(x, y + 53, w, 1);
+
+            // 按钮
+            const btnW = 80;
+            const btnX = x + w - btnW - 20;
+            const btnY = y + h - 50;
+            ctx.fillStyle = "#0078d4";
+            ctx.fillRect(btnX, btnY, btnW, 30);
+            
+            ctx.fillStyle = "white";
+            ctx.font = "14px Microsoft YaHei";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            ctx.fillText("确定", btnX + 26, btnY + 15);
+
+            ctx.fillStyle = "#000";
+            ctx.font = "16px Microsoft YaHei";
+            ctx.textBaseline = "top";
+            ctx.fillText("神秘礼物", x + 20, y + 20);
+            ctx.fillText("请输入您的姓名，您将收到一份神秘礼物", x + 20, y + 60);
+
+            // 显示输入框
+            if (nameInput.style.display === 'none') {
+                nameInput.style.display = 'block';
+                nameInput.focus();
+            }
+
+        } else {
+            // 绘制所有弹窗
+            for (let i = 0; i < MAX_POPUP; i++) {
+                popups[i].draw();
+            }
+
+            // 绘制中心照片
+            drawCenterPhoto();
+
+            // 生成新弹窗
+            if (frameCount % 6 === 0) {
+                for (let i = 0; i < MAX_POPUP; i++) {
+                    if (!popups[i].active) {
+                        popups[i].active = true;
+                        popups[i].reset();
+                        const p = popups.splice(i, 1)[0];
+                        popups.push(p);
+                        break;
+                    }
+                }
+            }
+        }
+
+        frameCount++;
+        requestAnimationFrame(loop);
+    }
+    
+    // 初始化输入框位置
+    positionInput();
+    loop();
+</script>
+</body>
+</html>
